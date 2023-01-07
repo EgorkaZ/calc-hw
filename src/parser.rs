@@ -7,8 +7,8 @@ pub struct Parser<I> {
     stack: Vec<Stacked>,
     curr: Option<tokens::Token>,
     state: State,
-    /// +1 when number is out, -2 + 1 (i.e; -1) when operator is out, should remain 1 arg in the end
-    arg_balance: i32,
+    /// +1 on argument, -1 on operator, can't be out of [0, 1] for valid infix string
+    arg_balance: i8,
     par_balance: i32,
 }
 
@@ -29,8 +29,8 @@ impl Display for ParseError {
         match self {
             ParseError::Tokenization(tok_err) => f.write_fmt(format_args!("TokenizeError: {tok_err}")),
             ParseError::UnmatchedParens => f.write_str("unmatched parens"),
-            ParseError::NotEnoughArgs => f.write_str("got arguments without operator"),
-            ParseError::NotEnoughOps => f.write_str("got operators without arguments"),
+            ParseError::NotEnoughArgs => f.write_str("got operators without arguments"),
+            ParseError::NotEnoughOps => f.write_str("got arguments without operator"),
         }
     }
 }
@@ -54,32 +54,33 @@ impl<I> Parser<I> {
             State::PopParenLevel => match self.stack.pop() {
                 Some(Stacked::LBrace) => { self.curr = None; self.state = State::Skip; None },
                 Some(Stacked::Op(op)) => {
-                    self.arg_balance -= 1;
                     Some(tokens::Token::Oper(op))
                 },
                 None => return Some(Err(ParseError::UnmatchedParens)),
             },
             State::PopOp => match self.stack.pop() {
                 Some(Stacked::Op(op)) => {
-                    self.arg_balance -= 1;
                     Some(tokens::Token::Oper(op))
                 },
                 _ => unreachable!(),
             },
             State::Skip => { self.curr = None; None },
             State::CurrToOut => {
-                if self.curr.is_some() {
-                    self.arg_balance += 1;
-                }
                 self.curr.take()
             },
         };
 
-        mb_token.map(|token| if self.arg_balance <= 0 {
-            Err(ParseError::NotEnoughArgs)
-        } else {
-            Ok(token)
-        })
+        if let Some(tokens::Token::Oper(_)) = self.curr {
+            // will be reused on next turn, have to keep arg balance
+            self.arg_balance += 1;
+        }
+
+        mb_token.map(Ok)
+        // mb_token.map(|token| if self.arg_balance <= 0 {
+        //     Err(ParseError::NotEnoughArgs)
+        // } else {
+        //     Ok(token)
+        // })
     }
 }
 
@@ -127,9 +128,7 @@ where
                             curr
                         }
                         None if self.stack.is_empty() => {
-                            if self.arg_balance > 1 {
-                                return Some(Err(ParseError::NotEnoughOps));
-                            } else if self.par_balance != 0 {
+                            if self.par_balance != 0 {
                                 // panic!("Unmatched parens, state: {self:?}");
                                 return Some(Err(ParseError::UnmatchedParens));
                             }
@@ -147,18 +146,15 @@ where
                 }
             };
 
-            match curr {
-                tokens::Token::Number(num) => self.visit_num(num),
-                tokens::Token::Paren(par) => {
-                    self.visit_paren(par);
-                    if self.par_balance < 0 {
-                        // panic!("Went under 0 paren balance: {self:?}");
-                        return Some(Err(ParseError::UnmatchedParens))
-                    }
-                },
-                tokens::Token::Oper(op) => self.visit_op(op),
-            };
-            println!("Dump state: {self:?}");
+            self.visit_token(curr);
+            if self.par_balance < 0 {
+                // panic!("Went under 0 paren balance: {self:?}");
+                return Some(Err(ParseError::UnmatchedParens))
+            } else if self.arg_balance < 0 {
+                return Some(Err(ParseError::NotEnoughArgs))
+            } else if self.arg_balance > 1 {
+                return Some(Err(ParseError::NotEnoughOps))
+            }
 
             if let Some(token) = self.token_from_state() {
                 break Some(token);
@@ -168,8 +164,8 @@ where
 }
 
 impl<I> TokenVisitor for Parser<I> {
-    fn visit_paren(&mut self, brace: tokens::Paren) {
-        match brace {
+    fn visit_paren(&mut self, paren: tokens::Paren) {
+        match paren {
             tokens::Paren::Left => {
                 self.stack.push(Stacked::LBrace);
                 self.state = State::Skip;
@@ -186,6 +182,7 @@ impl<I> TokenVisitor for Parser<I> {
     }
 
     fn visit_op(&mut self, op: tokens::Operation) {
+        self.arg_balance -= 1;
         match self.stack.last() {
             Some(Stacked::LBrace) | None => {
                 self.stack.push(Stacked::Op(op));
@@ -202,6 +199,7 @@ impl<I> TokenVisitor for Parser<I> {
     }
 
     fn visit_num(&mut self, _num: tokens::Number) {
+        self.arg_balance += 1;
         self.state = State::CurrToOut;
     }
 }
