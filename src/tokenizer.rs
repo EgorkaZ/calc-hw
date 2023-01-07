@@ -15,15 +15,34 @@ pub fn tokenize(input: &str) -> Tokenizer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum TokenizeErrorKind {
+    InvalidSymbol,
+}
+
+impl Display for TokenizeErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenizeErrorKind::InvalidSymbol => f.write_str("invalid symbol"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct TokenizeError {
-    msg: &'static str,
+    kind: TokenizeErrorKind,
     at: usize,
+}
+
+impl TokenizeError {
+    pub fn invalid_symbol(at: usize) -> Self {
+        Self { kind: TokenizeErrorKind::InvalidSymbol, at }
+    }
 }
 
 impl Display for TokenizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("TokenizeError: {}", self.msg))
+        f.write_fmt(format_args!("TokenizeError at {}: {}", self.at, self.kind))
     }
 }
 
@@ -131,10 +150,10 @@ impl ParseStep for GeneralState {
                 }
                 Some(ch) if ch == '(' || ch == ')' => {
                     break (
-                        Outcome::Token(tokens::Token::Brace(if ch == '(' {
-                            tokens::Brace::Left
+                        Outcome::Token(tokens::Token::Paren(if ch == '(' {
+                            tokens::Paren::Left
                         } else {
-                            tokens::Brace::Right
+                            tokens::Paren::Right
                         })),
                         to_skip + 1,
                     )
@@ -142,7 +161,7 @@ impl ParseStep for GeneralState {
                 Some(_) => {
                     break (
                         Outcome::Error(TokenizeError {
-                            msg: "invalid symbol",
+                            kind: TokenizeErrorKind::InvalidSymbol,
                             at: to_skip,
                         }),
                         0,
@@ -186,7 +205,7 @@ mod tests {
         [
             tokens::Token::Number(tokens::Number(123)),
             tokens::Token::Oper(tokens::Operation::Add),
-            tokens::Token::Brace(tokens::Brace::Left),
+            tokens::Token::Paren(tokens::Paren::Left),
         ]
         .into_iter()
         .zip(res)

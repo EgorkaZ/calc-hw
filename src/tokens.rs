@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Brace {
+pub enum Paren {
     Left,
     Right,
 }
@@ -27,6 +27,6 @@ pub struct Number(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
     Number(Number),
-    Brace(Brace),
+    Paren(Paren),
     Oper(Operation),
 }
